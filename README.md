@@ -10,3 +10,4 @@ https://github.com/user-attachments/assets/43609d40-63f0-4d78-aed0-9360c7d4913e
 - GLM
 - stb_image
 - xxhash
+- shader.h of learnopengl.com
