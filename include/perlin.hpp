@@ -31,14 +31,12 @@ public:
     // Fills a width*height grayscale map (0..255)
     void getHeatmap(std::vector<uint8_t>& img,
         int width, int height,
-        double scale_x, double scale_y,
-        uint64_t seed);
+        double scale_x, double scale_y);
 
     // Builds a grid mesh from a grayscale image
     Mesh getMesh(const std::vector<uint8_t>& img,
         int width, int height,
-        double scaleXY = 1.0f,
-        double scaleY = 1.0f);
+        double scale_height = 1.0f);
 
     // Upload the mesh to the OpenGl context
     GLMesh uploadMesh(const Mesh& m);

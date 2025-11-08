@@ -59,9 +59,8 @@ double Perlin::getNoise(double x, double y) {
     return (vertical_lerp + 1.0) * 0.5;
 }
 
-void Perlin::getHeatmap(std::vector<uint8_t>& img, int width, int height, double scale_x, double scale_y, uint64_t seed) {
+void Perlin::getHeatmap(std::vector<uint8_t>& img, int width, int height, double scale_x, double scale_y) {
     if (img.size() != width * height) img.resize(width * height);
-    Perlin perlin(seed);
 
     auto clamp_value = [](double value, double low, double high) {
         if (value < low) return low;
@@ -73,7 +72,7 @@ void Perlin::getHeatmap(std::vector<uint8_t>& img, int width, int height, double
         double y = row / scale_y;
         for (int col = 0; col < width; ++col) {
             double x = col / scale_x;
-            double h = perlin.getNoise(x, y);
+            double h = this->getNoise(x, y);
             int v = (int)std::lround(clamp_value(h, 0.0, 1.0) * 255.0);
             img[row * width + col] = (uint8_t)v;
         }
@@ -83,8 +82,7 @@ void Perlin::getHeatmap(std::vector<uint8_t>& img, int width, int height, double
 Mesh Perlin::getMesh(const std::vector<uint8_t>& img,
     int width,
     int height,
-    double scaleXY,
-    double scaleHeight)
+    double scale_height)
 {
     Mesh mesh;
     if (width <= 1 || height <= 1) return mesh;
@@ -98,11 +96,7 @@ Mesh Perlin::getMesh(const std::vector<uint8_t>& img,
 
     auto get_position = [cols](int r, int c) {
         return r * cols + c;
-        };
-
-    // for centering in the origin
-    const double xOffset = (cols - 1) * 0.5f * scaleXY;
-    const double zOffset = (rows - 1) * 0.5f * scaleXY;
+    };
 
     auto u8_to_height = [](uint8_t v, double scale) {
         return (double(v) / 255.0f) * scale;
@@ -111,9 +105,9 @@ Mesh Perlin::getMesh(const std::vector<uint8_t>& img,
     for (int r = 0; r < rows; ++r) {
         for (int c = 0; c < cols; ++c) {
             glm::f64vec3 vertex;
-            vertex.x = c * scaleXY - xOffset;
-            vertex.y = u8_to_height(img[get_position(r, c)], scaleHeight);
-            vertex.z = r * scaleXY - zOffset;
+            vertex.x = c - (cols / 2);
+            vertex.y = (img[get_position(r, c)] / 255.0f * scale_height) - scale_height / 2;
+            vertex.z = r - (rows / 2);
             mesh.vertices.push_back(vertex);
         }
     }

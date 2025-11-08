@@ -16,13 +16,10 @@
 #include <filesystem>
 
 // settings
-const unsigned int WINDOW_WIDTH = 800;
-const unsigned int WINDOW_HEIGHT = 600;
+const unsigned int WINDOW_WIDTH = 1920;
+const unsigned int WINDOW_HEIGHT = 1080;
 
-// camera
-glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 3.0f);
-glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
-glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
+float fov = 45.0f;
 
 // timing
 float deltaTime = 0.0f;	// time between current frame and last frame
@@ -32,6 +29,35 @@ struct Bounds {
     glm::vec3 minP, maxP, center;
     float radius;
 };
+
+
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
+{
+    fov -= (float)yoffset;
+    if (fov < 1.0f)
+        fov = 1.0f;
+    if (fov > 45.0f)
+        fov = 45.0f;
+}
+
+// Returns {r, g, b} in range [0.0, 1.0]
+std::vector<float> hexToRGBf(const std::string& hex) {
+    std::string clean = hex;
+
+    // Remove leading '#' if present
+    if (!clean.empty() && clean[0] == '#')
+        clean.erase(0, 1);
+
+    if (clean.size() != 6)
+        throw std::runtime_error("Invalid hex color: must have 6 hex digits");
+
+    // Parse R, G, B
+    int r = std::stoi(clean.substr(0, 2), nullptr, 16);
+    int g = std::stoi(clean.substr(2, 2), nullptr, 16);
+    int b = std::stoi(clean.substr(4, 2), nullptr, 16);
+
+    return { r / 255.0f, g / 255.0f, b / 255.0f };
+}
 
 Bounds computeBounds(const Mesh& m) {
     Bounds b;
@@ -124,7 +150,7 @@ int main()
 
     // glfw window creation
     // --------------------
-    GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "LearnOpenGL", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Procedural Terrain", NULL, NULL);
     if (window == NULL)
     {
         std::cout << "Failed to create GLFW window" << std::endl;
@@ -133,60 +159,40 @@ int main()
     }
     glfwMakeContextCurrent(window);
 
-    // tell GLFW to capture our mouse
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    glfwSetScrollCallback(window, scroll_callback);
 
-    // glad: load all OpenGL function pointers
-    // ---------------------------------------
+    // tell GLFW to capture our mouse
+    //glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
         std::cout << "Failed to initialize GLAD" << std::endl;
         return -1;
     }
 
-    // configure global opengl state
-    // -----------------------------
     glEnable(GL_DEPTH_TEST);
-
-    // build and compile our shader zprogram
-    // ------------------------------------
     Shader shader("mesh.vs", "mesh.fs");
-
-    // set up vertex data (and buffer(s)) and configure vertex attributes
-    // ------------------------------------------------------------------
-    // 
-    // ------------------------------------------------------------------
-    // 
-    // ------------------------------------------------------------------
-    // 
-    // ------------------------------------------------------------------
-    // 
-    // ------------------------------------------------------------------
-
-    int terrain_width = 500, terrain_depth = 500;
-    double scale_x = 100, scale_y = 100;
+    
+    int terrain_width = 1000, terrain_depth = 1000, terrain_height = 500;
     Perlin perlin(42, 0.0);
 
     std::vector<uint8_t> img(terrain_width * terrain_depth);
-    perlin.getHeatmap(img, terrain_width, terrain_depth, scale_x, scale_y, 42);
+    perlin.getHeatmap(img, terrain_width, terrain_depth, 500, 500);
     
-    Mesh mesh = perlin.getMesh(img, terrain_width, terrain_depth, 1.0, 500.0);
+    Mesh mesh = perlin.getMesh(img, terrain_width, terrain_depth, terrain_height);
     GLMesh glmesh = perlin.uploadMesh(mesh);
     
-    // Camera framing
-    Bounds B = computeBoundsFromMesh(mesh);
-
-    shader.setFloat("uMaxY", B.maxP.y);
-    shader.setFloat("uMinY", B.minP.y);
-
-    float camDist = 4.0f * B.radius;
-    float aspect = float(WINDOW_WIDTH) / float(WINDOW_HEIGHT);
-
+    shader.setFloat("uMaxY",  (float)(terrain_height)/2.0f);
+    shader.setFloat("uMinY", -(float)(terrain_height)/2.0f);
 
     // render loop
     // -----------
     while (!glfwWindowShouldClose(window))
     {
+
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+            glfwSetWindowShouldClose(window, true);
+
         // per-frame time logic
         // --------------------
         float currentFrame = static_cast<float>(glfwGetTime());
@@ -195,34 +201,33 @@ int main()
 
         // render
         // ------
-        glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+        //34a0a4
+        //184e77
+        auto color = hexToRGBf("184e77");
+        glClearColor(color[0], color[1], color[2], 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         // activate shader
         shader.use();
 
         // Rebuild projection if aspect changes
-        glm::mat4 proj = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 10000.0f);
+        glm::mat4 proj = glm::perspective(glm::radians(fov), 
+            float(WINDOW_WIDTH) / float(WINDOW_HEIGHT), 
+            0.1f, 10000.0f);
         shader.setMat4("uProj", proj);
 
         // View: camera looks at the mesh center from +Z
-        glm::vec3 camTarget = B.center;
-        glm::vec3 camPos = camTarget + glm::vec3(0.0f, 0.5f * B.radius, camDist);
+        glm::vec3 camTarget(0.0f, 0.0f, 0.0f);
+        glm::vec3 camPos(1300.0f, 500.0f, 0.0f);
         glm::mat4 view = glm::lookAt(camPos, camTarget, glm::vec3(0, 1, 0));
         shader.setMat4("uView", view);
-
 
         // Model: rotate around center
         double t = glfwGetTime();
         glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, B.center);
+        model = glm::translate(model, glm::vec3(0.0f));
         model = glm::rotate(model, float(t) * glm::radians(20.0f), glm::vec3(0, 1, 0));
-        //model = glm::translate(model, -B.center);
         shader.setMat4("uModel", model);
-
-        shader.setMat4("uModel", model);
-
-        //glUniform3f(glGetUniformLocation(prog, "uColor"), 0.85f, 0.90f, 1.00f);
 
         glBindVertexArray(glmesh.vao);
         glDrawElements(GL_TRIANGLES, glmesh.indexCount, GL_UNSIGNED_INT, 0);
