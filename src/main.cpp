@@ -15,21 +15,13 @@
 #include <iostream>
 #include <filesystem>
 
-// settings
 const unsigned int WINDOW_WIDTH = 1920;
 const unsigned int WINDOW_HEIGHT = 1080;
 
 float fov = 45.0f;
 
-// timing
-float deltaTime = 0.0f;	// time between current frame and last frame
+float deltaTime = 0.0f;
 float lastFrame = 0.0f;
-
-struct Bounds {
-    glm::vec3 minP, maxP, center;
-    float radius;
-};
-
 
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
@@ -57,82 +49,6 @@ std::vector<float> hexToRGBf(const std::string& hex) {
     int b = std::stoi(clean.substr(4, 2), nullptr, 16);
 
     return { r / 255.0f, g / 255.0f, b / 255.0f };
-}
-
-Bounds computeBounds(const Mesh& m) {
-    Bounds b;
-    if (m.vertices.empty()) {
-        b.minP = b.maxP = b.center = glm::vec3(0.0f);
-        b.radius = 1.0f;
-        return b;
-    }
-
-    glm::vec3 mn(std::numeric_limits<float>::infinity());
-    glm::vec3 mx(-std::numeric_limits<float>::infinity());
-    for (auto& v : m.vertices) {
-        mn = glm::min(mn, v);
-        mx = glm::max(mx, v);
-    }
-
-    b.minP = mn;
-    b.maxP = mx;
-    b.center = 0.5f * (mn + mx);
-
-    float r2 = 0.0f;
-    for (auto& v : m.vertices) {
-        float dist2 = glm::dot(v - b.center, v - b.center);
-        r2 = std::max(r2, dist2);
-    }
-    b.radius = std::sqrt(r2);
-    return b;
-}
-
-inline Bounds computeBoundsFromMesh(const Mesh& m) {
-    Bounds b{};
-    if (m.vertices.empty()) {
-        b.minP = b.maxP = b.center = glm::vec3(0.0f);
-        b.radius = 1.0f;
-        return b;
-    }
-
-    float minX = std::numeric_limits<float>::infinity();
-    float minY = std::numeric_limits<float>::infinity();
-    float minZ = std::numeric_limits<float>::infinity();
-    float maxX = -std::numeric_limits<float>::infinity();
-    float maxY = -std::numeric_limits<float>::infinity();
-    float maxZ = -std::numeric_limits<float>::infinity();
-
-    for (const glm::vec3& p : m.vertices) {
-        if (p.x < minX) minX = p.x;
-        if (p.y < minY) minY = p.y;
-        if (p.z < minZ) minZ = p.z;
-        if (p.x > maxX) maxX = p.x;
-        if (p.y > maxY) maxY = p.y;
-        if (p.z > maxZ) maxZ = p.z;
-    }
-
-    b.minP = { minX, minY, minZ };
-    b.maxP = { maxX, maxY, maxZ };
-    b.center = 0.5f * (b.minP + b.maxP);
-
-    // Bounding sphere radius around center (avoid glm::length2 if missing)
-    float r2 = 0.0f;
-    for (const glm::vec3& p : m.vertices) {
-        glm::vec3 d = p - b.center;
-        float d2 = glm::dot(d, d);   // squared distance
-        if (d2 > r2) r2 = d2;
-    }
-    b.radius = std::sqrt(r2);
-    return b;
-}
-
-
-float computeCameraDistanceToFit(float radius, float fovyDeg, float aspect) {
-    float fovy = glm::radians(fovyDeg);
-    float fovx = 2.0f * std::atan(std::tan(fovy * 0.5f) * aspect);
-    float distV = radius / std::tan(fovy * 0.5f);
-    float distH = radius / std::tan(fovx * 0.5f);
-    return 1.05f * std::max(distV, distH); // 5% margin
 }
 
 int main()
@@ -185,8 +101,6 @@ int main()
     shader.setFloat("uMaxY",  (float)(terrain_height)/2.0f);
     shader.setFloat("uMinY", -(float)(terrain_height)/2.0f);
 
-    // render loop
-    // -----------
     while (!glfwWindowShouldClose(window))
     {
 
@@ -207,10 +121,9 @@ int main()
         glClearColor(color[0], color[1], color[2], 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // activate shader
         shader.use();
 
-        // Rebuild projection if aspect changes
+        // Projection
         glm::mat4 proj = glm::perspective(glm::radians(fov), 
             float(WINDOW_WIDTH) / float(WINDOW_HEIGHT), 
             0.1f, 10000.0f);
