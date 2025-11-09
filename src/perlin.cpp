@@ -1,9 +1,9 @@
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define _CRT_SECURE_NO_WARNINGS
+#include "stb_image_write.h"
+
 #include "perlin.hpp"
 #include <glad/glad.h>
-
-//#define STB_IMAGE_WRITE_IMPLEMENTATION
-//#define _CRT_SECURE_NO_WARNINGS
-//#include "stb_image_write.h"
 
 #define XXH_INLINE_ALL
 #include "xxhash.h"
@@ -20,6 +20,11 @@
 #endif
 #include <math.h>
 
+inline double clamp_value(double value, double low, double high) {
+    if (value < low) return low;
+    if (value > high) return high;
+    return value;
+}
 
 Perlin::Perlin(uint64_t seed, double phase) : seed_(seed), phase_(phase) {}
 
@@ -59,14 +64,34 @@ double Perlin::getNoise(double x, double y) {
     return (vertical_lerp + 1.0) * 0.5;
 }
 
+void Perlin::applyGaussian(std::vector<uint8_t>& img, int width, int height, double sigma)
+{
+    const double offset_x = 0.5f * (width - 1);
+    const double offset_y = 0.5f * (height - 1);
+    const double rx = std::max(offset_x, 1.0);  // half-width
+    const double ry = std::max(offset_y, 1.0);  // half-height
+
+    for (int y = 0; y < height; ++y) {
+        const double vy = (y - offset_y) / ry;
+        for (int x = 0; x < width; ++x) {
+            const double vx = (x - offset_x) / rx;
+            double r = std::sqrt(vx * vx + vy * vy); // 0 at center, almost 1 at border
+            
+            if (r > 1.0f) r = 1.0f;
+            const double s2 = 2.0f * sigma * sigma;
+            double f = std::exp(-(r * r) / std::max(1e-6, s2));
+
+            f = clamp_value(f, 0.0, 1.0);
+
+            uint8_t& px = img[y * width + x];
+            const double v = f * px;
+            px = static_cast<uint8_t>(std::lround(clamp_value(v, 0.0, 255.0)));
+        }
+    }
+}
+
 void Perlin::getHeatmap(std::vector<uint8_t>& img, int width, int height, double scale_x, double scale_y) {
     if (img.size() != width * height) img.resize(width * height);
-
-    auto clamp_value = [](double value, double low, double high) {
-        if (value < low) return low;
-        if (value > high) return high;
-        return value;
-    };
 
     for (int row = 0; row < height; ++row) {
         double y = row / scale_y;
@@ -76,6 +101,47 @@ void Perlin::getHeatmap(std::vector<uint8_t>& img, int width, int height, double
             int v = (int)std::lround(clamp_value(h, 0.0, 1.0) * 255.0);
             img[row * width + col] = (uint8_t)v;
         }
+    }
+}
+
+void Perlin::getFractalNoise(
+    std::vector<uint8_t>& img,
+    int width,
+    int height,
+    int base_scale_x,
+    int base_scale_y,
+    int octaves,
+    double persistence,
+    double lacunarity)
+{
+    std::vector<double> buffer(width * height, 0.0);
+    double max_val = 0.0;
+
+    double amplitude = 1.0;
+    double frequency_x = 1.0;
+    double frequency_y = 1.0;
+
+    for (int o = 0; o < octaves; ++o) {
+        std::vector<uint8_t> layer(width * height);
+        // Generate Perlin noise for this octave
+        this->getHeatmap(layer, width, height,
+            double(base_scale_x) / frequency_x,
+            double(base_scale_y) / frequency_y);
+
+        for (int i = 0; i < width * height; ++i)
+            buffer[i] += layer[i] * amplitude;
+
+        max_val += 255.0 * amplitude;
+
+        amplitude *= persistence;
+        frequency_x *= lacunarity;
+        frequency_y *= lacunarity;
+    }
+
+    // Normalize to 0–255
+    for (int i = 0; i < width * height; ++i) {
+        double v = buffer[i] / max_val * 255.0;
+        img[i] = static_cast<uint8_t>(std::lround(clamp_value(v, 0.0, 255.0)));
     }
 }
 
@@ -91,6 +157,8 @@ Mesh Perlin::getMesh(const std::vector<uint8_t>& img,
     const int rows = height;
     const int cols = width;
 
+    double max_value = (double)(*std::max_element(img.begin(), img.end()));
+
     mesh.vertices.reserve(rows * cols);
     mesh.indices.reserve((rows - 1) * (cols - 1) * 6);
 
@@ -98,16 +166,12 @@ Mesh Perlin::getMesh(const std::vector<uint8_t>& img,
         return r * cols + c;
     };
 
-    auto u8_to_height = [](uint8_t v, double scale) {
-        return (double(v) / 255.0f) * scale;
-        };
-
     for (int r = 0; r < rows; ++r) {
         for (int c = 0; c < cols; ++c) {
             glm::f64vec3 vertex;
-            vertex.x = c - (cols / 2);
-            vertex.y = (img[get_position(r, c)] / 255.0f * scale_height) - scale_height / 2;
-            vertex.z = r - (rows / 2);
+            vertex.x = c - ((cols - 1) / 2);
+            vertex.y = (img[get_position(r, c)] / max_value * scale_height) - scale_height / 2;
+            vertex.z = r - ((rows - 1) / 2);
             mesh.vertices.push_back(vertex);
         }
     }
@@ -164,8 +228,19 @@ GLMesh Perlin::uploadMesh(const Mesh& m) {
     return g;
 }
 
+int Perlin::create_png(const std::string filename_, int width, int height, const std::vector<uint8_t>& img) {
+    char filename[256];
+    strcpy(filename, filename_.c_str());
+    if (!stbi_write_png(filename, width, height, 1, img.data(), width)) {
+        std::cerr << "Failed to write PNG\n";
+        return 1;
+    }
+    return 0;
+}
 
-//int test() {
+//int Perlin::create_png(const std::string filename_, const std::vector<uint8_t>& img) {
+//    char filename[256];
+//    strcpy(filename, filename_.c_str());
 //
 //    bool GIF = false;
 //
@@ -177,12 +252,6 @@ GLMesh Perlin::uploadMesh(const Mesh& m) {
 //
 //    if (GIF) std::filesystem::create_directories("GIF");
 //    std::vector<uint8_t> img(width * height);
-//
-//    auto clamp_value = [](double value, double low, double high) {
-//        if (value < low) return low;
-//        if (value > high) return high;
-//        return value;
-//    };
 //
 //    int frame_idx = 0;
 //    for (int deg = 0; deg <= 360; deg += 12) {
@@ -204,7 +273,6 @@ GLMesh Perlin::uploadMesh(const Mesh& m) {
 //        }
 //
 //        if (GIF) {
-//            char filename[256];
 //            std::snprintf(filename, sizeof(filename), "GIF/perlin_%03d.png", frame_idx++);
 //            if (!stbi_write_png(filename, width, height, 1, img.data(), width)) {
 //                std::cerr << "Failed to write " << filename << "\n";
@@ -236,7 +304,7 @@ GLMesh Perlin::uploadMesh(const Mesh& m) {
 //        std::cout << "perlin.gif successfully created!\n";
 //        return 0;
 //    } else {
-//        if (!stbi_write_png("terrain.png", width, height, 1, img.data(), width)) {
+//        if (!stbi_write_png(filename, width, height, 1, img.data(), width)) {
 //            std::cerr << "Failed to write PNG\n";
 //            return 1;
 //        }

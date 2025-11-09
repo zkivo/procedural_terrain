@@ -89,15 +89,40 @@ int main()
     glEnable(GL_DEPTH_TEST);
     Shader shader("mesh.vs", "mesh.fs");
     
-    int terrain_width = 1000, terrain_depth = 1000, terrain_height = 500;
+    int terrain_width = 2000, terrain_depth = 2000, terrain_height = 500;
     Perlin perlin(42, 0.0);
 
     std::vector<uint8_t> img(terrain_width * terrain_depth);
-    perlin.getHeatmap(img, terrain_width, terrain_depth, 500, 500);
-    
+
+    //perlin.getHeatmap(img, terrain_width, terrain_depth, 250, 250);
+    //std::cout << "1. Max img value: " << (int)(*std::max_element(img.begin(), img.end())) << std::endl;
+    //perlin.create_png("terrain.png", terrain_width, terrain_depth, img);
+    //perlin.applyGaussian(img, terrain_width, terrain_depth, 0.7);
+    //std::cout << "2. Max img value: " << (int)(*std::max_element(img.begin(), img.end())) << std::endl;
+    //perlin.create_png("terrain_gaussian.png", terrain_width, terrain_depth, img);
+
+    perlin.getFractalNoise(img, terrain_width, terrain_depth, 250, 250, 5, 0.5, 2.0);
+    std::cout << "1. Max img value: " << (int)(*std::max_element(img.begin(), img.end())) << std::endl;
+    perlin.create_png("terrain.png", terrain_width, terrain_depth, img);
+    perlin.applyGaussian(img, terrain_width, terrain_depth, 0.7);
+    std::cout << "2. Max img value: " << (int)(*std::max_element(img.begin(), img.end())) << std::endl;
+    perlin.create_png("terrain_gaussian.png", terrain_width, terrain_depth, img);
+
     Mesh mesh = perlin.getMesh(img, terrain_width, terrain_depth, terrain_height);
     GLMesh glmesh = perlin.uploadMesh(mesh);
     
+    glm::vec3 highest = mesh.vertices.front();
+    glm::vec3 lowest = mesh.vertices.front();
+
+    for (const auto& v : mesh.vertices) {
+        if (v.y > highest.y) highest = v;
+        if (v.y < lowest.y)  lowest = v;
+    }
+
+    std::cout << "Highest vertex: (" << highest.x << ", " << highest.y << ", " << highest.z << ")\n";
+    std::cout << "Lowest vertex: ("  << lowest.x  << ", " << lowest.y  << ", " << lowest.z  << ")\n";
+
+
     shader.setFloat("uMaxY",  (float)(terrain_height)/2.0f);
     shader.setFloat("uMinY", -(float)(terrain_height)/2.0f);
 
@@ -131,7 +156,7 @@ int main()
 
         // View: camera looks at the mesh center from +Z
         glm::vec3 camTarget(0.0f, 0.0f, 0.0f);
-        glm::vec3 camPos(1300.0f, 500.0f, 0.0f);
+        glm::vec3 camPos(2100.0f, 500.0f, 0.0f);
         glm::mat4 view = glm::lookAt(camPos, camTarget, glm::vec3(0, 1, 0));
         shader.setMat4("uView", view);
 

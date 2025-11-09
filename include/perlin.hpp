@@ -4,6 +4,7 @@
 #define XXH_INLINE_ALL
 #include "xxhash.h"
 
+#include <string>
 #include <vector>
 #include <cstdint>
 #include "glm/glm.hpp"
@@ -33,6 +34,9 @@ public:
         int width, int height,
         double scale_x, double scale_y);
 
+    void applyGaussian(std::vector<uint8_t>& img,
+        int width, int height, double sigma = 0.35);
+
     // Builds a grid mesh from a grayscale image
     Mesh getMesh(const std::vector<uint8_t>& img,
         int width, int height,
@@ -40,6 +44,20 @@ public:
 
     // Upload the mesh to the OpenGl context
     GLMesh uploadMesh(const Mesh& m);
+
+    int create_png(const std::string filename_,
+        int width, int height,
+        const std::vector<uint8_t>& img);
+
+    void getFractalNoise(
+        std::vector<uint8_t>& img,
+        int width,
+        int height,
+        int base_scale_x,
+        int base_scale_y,
+        int octaves = 5,
+        double persistence = 0.5,
+        double lacunarity = 2.0);
 
 private:
     double   phase_;
