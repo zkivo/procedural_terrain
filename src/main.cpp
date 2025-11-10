@@ -10,9 +10,10 @@
 #include "glm/gtc/type_ptr.hpp"
 
 #include "perlin.hpp"
-#include "shader.h"
 
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <filesystem>
 
 const unsigned int WINDOW_WIDTH = 1920;
@@ -53,8 +54,7 @@ std::vector<float> hexToRGBf(const std::string& hex) {
 
 int main()
 {
-    // glfw: initialize and configure
-    // ------------------------------
+    // glfw
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -64,8 +64,6 @@ int main()
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
 
-    // glfw window creation
-    // --------------------
     GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Procedural Terrain", NULL, NULL);
     if (window == NULL)
     {
@@ -74,9 +72,7 @@ int main()
         return -1;
     }
     glfwMakeContextCurrent(window);
-
     glfwSetScrollCallback(window, scroll_callback);
-
     // tell GLFW to capture our mouse
     //glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
@@ -86,9 +82,6 @@ int main()
         return -1;
     }
 
-    glEnable(GL_DEPTH_TEST);
-    Shader shader("mesh.vs", "mesh.fs");
-    
     int terrain_width = 2000, terrain_depth = 2000, terrain_height = 500;
     Perlin perlin(42, 0.0);
 
@@ -102,38 +95,66 @@ int main()
     //perlin.create_png("terrain_gaussian.png", terrain_width, terrain_depth, img);
 
     perlin.getFractalNoise(img, terrain_width, terrain_depth, 250, 250, 5, 0.5, 2.0);
-    std::cout << "1. Max img value: " << (int)(*std::max_element(img.begin(), img.end())) << std::endl;
+    //std::cout << "1. Max img value: " << (int)(*std::max_element(img.begin(), img.end())) << std::endl;
     perlin.create_png("terrain.png", terrain_width, terrain_depth, img);
     perlin.applyGaussian(img, terrain_width, terrain_depth, 0.7);
-    std::cout << "2. Max img value: " << (int)(*std::max_element(img.begin(), img.end())) << std::endl;
+    //std::cout << "2. Max img value: " << (int)(*std::max_element(img.begin(), img.end())) << std::endl;
     perlin.create_png("terrain_gaussian.png", terrain_width, terrain_depth, img);
 
     Mesh mesh = perlin.getMesh(img, terrain_width, terrain_depth, terrain_height);
     GLMesh glmesh = perlin.uploadMesh(mesh);
     
-    glm::vec3 highest = mesh.vertices.front();
-    glm::vec3 lowest = mesh.vertices.front();
+    glm::vec3 highest_vertex = mesh.vertices.front();
+    glm::vec3 lowest_vertex  = mesh.vertices.front();
 
     for (const auto& v : mesh.vertices) {
-        if (v.y > highest.y) highest = v;
-        if (v.y < lowest.y)  lowest = v;
+        if (v.y > highest_vertex.y) highest_vertex = v;
+        if (v.y < lowest_vertex.y)  lowest_vertex = v;
     }
 
-    std::cout << "Highest vertex: (" << highest.x << ", " << highest.y << ", " << highest.z << ")\n";
-    std::cout << "Lowest vertex: ("  << lowest.x  << ", " << lowest.y  << ", " << lowest.z  << ")\n";
+    std::cout << "Highest vertex: (" << highest_vertex.x << ", " << highest_vertex.y << ", " << highest_vertex.z << ")\n";
+    std::cout << "Lowest vertex: ("  << lowest_vertex.x  << ", " << lowest_vertex.y  << ", " << lowest_vertex.z  << ")\n";
 
+    unsigned int shader_id;
 
-    shader.setFloat("uMaxY",  (float)(terrain_height)/2.0f);
-    shader.setFloat("uMinY", -(float)(terrain_height)/2.0f);
+    std::string vertexCode;
+    std::string fragmentCode;
+    std::ifstream vShaderFile("terrain.vs");
+    std::ifstream fShaderFile("terrain.fs");
+    std::stringstream vShaderStream, fShaderStream;
+    vShaderStream << vShaderFile.rdbuf();
+    fShaderStream << fShaderFile.rdbuf();
+    vertexCode = vShaderStream.str();
+    fragmentCode = fShaderStream.str();
+    const char* charVertexCode = vertexCode.c_str();
+    const char* charFragmentCode = fragmentCode.c_str();
+
+    // compiling
+    unsigned int vertex, fragment;
+    vertex = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertex, 1, &charVertexCode, NULL);
+    glCompileShader(vertex);
+    fragment = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragment, 1, &charFragmentCode, NULL);
+    glCompileShader(fragment);
+    // shader Program
+    shader_id = glCreateProgram();
+    glAttachShader(shader_id, vertex);
+    glAttachShader(shader_id, fragment);
+    glLinkProgram(shader_id);
+    glDeleteShader(vertex);
+    glDeleteShader(fragment);
+
+    glEnable(GL_DEPTH_TEST);
+
+    glUniform1f(glGetUniformLocation(shader_id, std::string("uMinHeight").c_str()), lowest_vertex.y);
+    glUniform1f(glGetUniformLocation(shader_id, std::string("uMaxHeight").c_str()), highest_vertex.y);
 
     while (!glfwWindowShouldClose(window))
     {
-
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
             glfwSetWindowShouldClose(window, true);
 
-        // per-frame time logic
-        // --------------------
         float currentFrame = static_cast<float>(glfwGetTime());
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
@@ -146,26 +167,27 @@ int main()
         glClearColor(color[0], color[1], color[2], 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        shader.use();
+        glUseProgram(shader_id);
 
         // Projection
         glm::mat4 proj = glm::perspective(glm::radians(fov), 
             float(WINDOW_WIDTH) / float(WINDOW_HEIGHT), 
             0.1f, 10000.0f);
-        shader.setMat4("uProj", proj);
+        glUniformMatrix4fv(glGetUniformLocation(shader_id, std::string("uProj").c_str()), 1, GL_FALSE, &proj[0][0]);
 
-        // View: camera looks at the mesh center from +Z
-        glm::vec3 camTarget(0.0f, 0.0f, 0.0f);
-        glm::vec3 camPos(2100.0f, 500.0f, 0.0f);
+        // View
+        glm::vec3 camTarget(0.0f, (lowest_vertex.y + lowest_vertex.y) / 2, 0.0f);
+        glm::vec3 camPos(2100.0f, 1000.0f, 0.0f);
         glm::mat4 view = glm::lookAt(camPos, camTarget, glm::vec3(0, 1, 0));
-        shader.setMat4("uView", view);
+        glUniformMatrix4fv(glGetUniformLocation(shader_id, std::string("uView").c_str()), 1, GL_FALSE, &view[0][0]);
+        glUniform3f(glGetUniformLocation(shader_id, std::string("uCamPos").c_str()), camPos.x, camPos.y, camPos.z);
 
         // Model: rotate around center
         double t = glfwGetTime();
         glm::mat4 model = glm::mat4(1.0f);
         model = glm::translate(model, glm::vec3(0.0f));
         model = glm::rotate(model, float(t) * glm::radians(20.0f), glm::vec3(0, 1, 0));
-        shader.setMat4("uModel", model);
+        glUniformMatrix4fv(glGetUniformLocation(shader_id, std::string("uModel").c_str()), 1, GL_FALSE, &model[0][0]);
 
         glBindVertexArray(glmesh.vao);
         glDrawElements(GL_TRIANGLES, glmesh.indexCount, GL_UNSIGNED_INT, 0);
@@ -175,6 +197,7 @@ int main()
         glfwPollEvents();
     }
 
+    perlin.destroy(glmesh);
     glfwTerminate();
     return 0;
 }

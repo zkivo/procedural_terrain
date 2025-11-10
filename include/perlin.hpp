@@ -12,13 +12,15 @@
 
 struct GLMesh {
     GLuint vao = 0;
-    GLuint vbo = 0;
+    GLuint vbo = 0;   // vertex buffer
+    GLuint nbo = 0;   // normal buffer
     GLuint ebo = 0;
     GLsizei indexCount = 0;
 };
 
 struct Mesh {
     std::vector<glm::vec3> vertices;
+    std::vector<glm::vec3> normals;
     std::vector<unsigned int> indices;
 };
 
@@ -58,6 +60,8 @@ public:
         int octaves = 5,
         double persistence = 0.5,
         double lacunarity = 2.0);
+
+    void destroy(GLMesh& g);
 
 private:
     double   phase_;

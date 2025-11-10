@@ -160,6 +160,7 @@ Mesh Perlin::getMesh(const std::vector<uint8_t>& img,
     double max_value = (double)(*std::max_element(img.begin(), img.end()));
 
     mesh.vertices.reserve(rows * cols);
+    mesh.normals.resize(rows * cols);
     mesh.indices.reserve((rows - 1) * (cols - 1) * 6);
 
     auto get_position = [cols](int r, int c) {
@@ -170,7 +171,7 @@ Mesh Perlin::getMesh(const std::vector<uint8_t>& img,
         for (int c = 0; c < cols; ++c) {
             glm::f64vec3 vertex;
             vertex.x = c - ((cols - 1) / 2);
-            vertex.y = (img[get_position(r, c)] / max_value * scale_height) - scale_height / 2;
+            vertex.y = (img[get_position(r, c)] / max_value * scale_height);
             vertex.z = r - ((rows - 1) / 2);
             mesh.vertices.push_back(vertex);
         }
@@ -192,6 +193,27 @@ Mesh Perlin::getMesh(const std::vector<uint8_t>& img,
             mesh.indices.push_back(i3);
         }
     }
+
+    for (size_t i = 0; i < mesh.indices.size(); i += 3) {
+        unsigned int i0 = mesh.indices[i];
+        unsigned int i1 = mesh.indices[i + 1];
+        unsigned int i2 = mesh.indices[i + 2];
+
+        glm::vec3 v0 = mesh.vertices[i0];
+        glm::vec3 v1 = mesh.vertices[i1];
+        glm::vec3 v2 = mesh.vertices[i2];
+
+        glm::vec3 normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+
+        mesh.normals[i0] = normal;
+        mesh.normals[i1] = normal;
+        mesh.normals[i2] = normal;
+    }
+
+    // Normalize all accumulated normals
+    for (auto& n : mesh.normals)
+        n = glm::normalize(n);
+
     return mesh;
 }
 
@@ -199,34 +221,56 @@ GLMesh Perlin::uploadMesh(const Mesh& m) {
     GLMesh g{};
     if (m.vertices.empty() || m.indices.empty()) return g;
 
+    const bool hasNormals = (m.normals.size() == m.vertices.size());
+
     glGenVertexArrays(1, &g.vao);
     glGenBuffers(1, &g.vbo);
     glGenBuffers(1, &g.ebo);
+    if (hasNormals) glGenBuffers(1, &g.nbo);
 
     glBindVertexArray(g.vao);
 
+    // Positions
     glBindBuffer(GL_ARRAY_BUFFER, g.vbo);
     glBufferData(GL_ARRAY_BUFFER,
         m.vertices.size() * sizeof(glm::vec3),
         m.vertices.data(),
         GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0); // layout(location=0) position
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
 
+    // Normals (optional but recommended)
+    if (hasNormals) {
+        glBindBuffer(GL_ARRAY_BUFFER, g.nbo);
+        glBufferData(GL_ARRAY_BUFFER,
+            m.normals.size() * sizeof(glm::vec3),
+            m.normals.data(),
+            GL_STATIC_DRAW);
+        glEnableVertexAttribArray(1); // layout(location=1) normal
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+    }
+
+    // Indices
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g.ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER,
         m.indices.size() * sizeof(unsigned int),
         m.indices.data(),
         GL_STATIC_DRAW);
 
-    // layout(location = 0) => vec3 position
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE,
-        sizeof(glm::vec3), (void*)0);
-
     glBindVertexArray(0);
 
-    g.indexCount = (GLsizei)m.indices.size();
+    g.indexCount = static_cast<GLsizei>(m.indices.size());
     return g;
 }
+
+void Perlin::destroy(GLMesh& g) {
+    if (g.ebo) glDeleteBuffers(1, &g.ebo);
+    if (g.nbo) glDeleteBuffers(1, &g.nbo);
+    if (g.vbo) glDeleteBuffers(1, &g.vbo);
+    if (g.vao) glDeleteVertexArrays(1, &g.vao);
+    g = {};
+}
+
 
 int Perlin::create_png(const std::string filename_, int width, int height, const std::vector<uint8_t>& img) {
     char filename[256];
